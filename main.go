@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +14,19 @@ import (
 const (
 	addr = ":8080"
 )
+
+var mux map[string]func(http.ResponseWriter, *http.Request)
+
+// SchedulerHandler implements custom handler
+type SchedulerHandler struct{}
+
+func (*SchedulerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h, ok := mux[r.URL.Path]; ok {
+		h(w, r)
+	}
+	w.WriteHeader(http.StatusBadRequest)
+	io.WriteString(w, "Your request URL is not found")
+}
 
 func main() {
 	var kubeConfig *string
@@ -27,13 +41,18 @@ func main() {
 	if err != nil {
 		glog.Fatalf("clientset error: %v", err)
 	}
-	glog.V(2).Info("create clientset success")
+
+	extendedResourceScheduler := &ExtendedResourceScheduler{
+		Clientset: clientset,
+	}
+
+	mux = make(map[string]func(http.ResponseWriter, *http.Request))
+	mux["/"] = welcome
+	mux["/predicates/ers"] = extendedResourceScheduler.Predicates
 
 	server := http.Server{
-		Addr: addr,
-		Handler: &ExtendedResourceScheduler{
-			Clientset: clientset,
-		},
+		Addr:         addr,
+		Handler:      &SchedulerHandler{},
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
@@ -43,6 +62,11 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		glog.Fatalf("scheduler server start failed: %v", err)
 	}
+}
+
+func welcome(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	io.WriteString(w, "This is k8s extended resource scheduler")
 }
 
 func homeDir() string {

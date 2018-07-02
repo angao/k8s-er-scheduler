@@ -20,23 +20,9 @@ type ExtendedResourceScheduler struct {
 	Clientset *kubernetes.Clientset
 }
 
-func (ers ExtendedResourceScheduler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	switch r.URL.Path {
-	case "/":
-		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, "This is k8s extendedresource scheduler")
-	case "/predicates/er":
-		ers.Predicates(w, r)
-	default:
-		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, "Your request URL is not found")
-	}
-}
-
 // Predicates implemented filter functions.
 // The filter list is expected to be a subset of the supplied list.
-func (ers ExtendedResourceScheduler) Predicates(w http.ResponseWriter, r *http.Request) {
+func (ers *ExtendedResourceScheduler) Predicates(w http.ResponseWriter, r *http.Request) {
 	var buf bytes.Buffer
 	body := io.TeeReader(r.Body, &buf)
 	glog.V(2).Infof("body: %s", buf.String())
@@ -53,6 +39,8 @@ func (ers ExtendedResourceScheduler) Predicates(w http.ResponseWriter, r *http.R
 	} else {
 		extenderFilterResult = filter(extenderArgs, ers.Clientset)
 	}
+
+	w.Header().Set("Content-Type", "application/json")
 	if resultBody, err := json.Marshal(extenderFilterResult); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
