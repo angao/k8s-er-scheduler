@@ -39,11 +39,12 @@ func (ers *ExtendedResourceScheduler) Predicates(w http.ResponseWriter, r *http.
 		extenderFilterResult = filter(extenderArgs, ers.Clientset)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	if resultBody, err := json.Marshal(extenderFilterResult); err != nil {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
 	} else {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write(resultBody)
 	}
