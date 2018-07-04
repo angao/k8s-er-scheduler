@@ -125,3 +125,6 @@ zz_generated.openapi.go
 
 /bazel-*
 *.pyc
+
+kube-er-scheduler
+kube-er-scheduler.exe

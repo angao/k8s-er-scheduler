@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	addr = ":8080"
+	addr = ":8089"
 )
 
 var mux map[string]func(http.ResponseWriter, *http.Request)
@@ -29,15 +29,16 @@ func (*SchedulerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	var kubeConfig *string
+	var masterURL, kubeConfig *string
 	if home := homeDir(); home != "" {
 		kubeConfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
 	} else {
 		kubeConfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
+	masterURL = flag.String("masterURL", "http://127.0.0.1:8080", "kubernetes server address")
 	flag.Parse()
 
-	clientset, err := CreateClientset(kubeConfig)
+	clientset, err := CreateClientset(*masterURL, *kubeConfig)
 	if err != nil {
 		glog.Fatalf("clientset error: %v", err)
 	}
