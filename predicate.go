@@ -68,8 +68,8 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 
 	extendedResourceClaims := make([]string, 0)
 	for _, container := range pod.Spec.Containers {
-		if len(container.ExtendedResourceClaim) != 0 {
-			extendedResourceClaims = append(extendedResourceClaims, container.ExtendedResourceClaim...)
+		if len(container.ExtendedResourceClaims) != 0 {
+			extendedResourceClaims = append(extendedResourceClaims, container.ExtendedResourceClaims...)
 		}
 	}
 	if len(extendedResourceClaims) == 0 {
