@@ -661,9 +661,9 @@ message Container {
   // +optional
   optional bool tty = 18;
 
-  // ExtendedResourceClaim is the claim names users asked for this container
+  // ExtendedResourceClaims is the claim names array users asked for this container
   // +optional
-  repeated string extendedResourceClaim = 22;
+  repeated string extendedResourceClaims = 22;
 }
 
 // Describe a container image

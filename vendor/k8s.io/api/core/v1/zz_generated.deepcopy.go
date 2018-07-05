@@ -787,8 +787,8 @@ func (in *Container) DeepCopyInto(out *Container) {
 			(*in).DeepCopyInto(*out)
 		}
 	}
-	if in.ExtendedResourceClaim != nil {
-		in, out := &in.ExtendedResourceClaim, &out.ExtendedResourceClaim
+	if in.ExtendedResourceClaims != nil {
+		in, out := &in.ExtendedResourceClaims, &out.ExtendedResourceClaims
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}

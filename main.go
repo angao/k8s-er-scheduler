@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/cloudflare/cfssl/log"
 	"github.com/golang/glog"
 )
 
@@ -29,16 +30,16 @@ func (*SchedulerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	var masterURL, kubeConfig *string
+	var master, kubeConfig *string
 	if home := homeDir(); home != "" {
 		kubeConfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
 	} else {
 		kubeConfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
-	masterURL = flag.String("masterURL", "http://127.0.0.1:8080", "kubernetes server address")
+	master = flag.String("master", "http://192.168.56.3:8080", "kubernetes server address")
 	flag.Parse()
 
-	clientset, err := CreateClientset(*masterURL, *kubeConfig)
+	clientset, err := CreateClientset(*master, *kubeConfig)
 	if err != nil {
 		glog.Fatalf("clientset error: %v", err)
 	}
@@ -59,6 +60,7 @@ func main() {
 	}
 
 	glog.V(2).Info("scheduler server is starting")
+	log.Info("scheduler server is starting")
 
 	if err := server.ListenAndServe(); err != nil {
 		glog.Fatalf("scheduler server start failed: %v", err)
