@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/cloudflare/cfssl/log"
 	"github.com/golang/glog"
 	"k8s.io/api/core/v1"
 	"k8s.io/api/extensions/v1alpha1"
@@ -72,6 +73,7 @@ func (ers *ExtendedResourceScheduler) Bind(w http.ResponseWriter, r *http.Reques
 			Name: extenderBindingArgs.Node,
 		},
 	}
+	log.Info("start to bind: %v", extenderBindingArgs)
 	err := ers.Clientset.CoreV1().Pods(b.Namespace).Bind(b)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -86,6 +88,8 @@ func (ers *ExtendedResourceScheduler) Bind(w http.ResponseWriter, r *http.Reques
 func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Clientset) *schedulerapi.ExtenderFilterResult {
 	pod := extenderArgs.Pod
 	nodes := extenderArgs.Nodes.Items
+
+	log.Info("start to filter pod: %v, nodes: %v", pod, nodes)
 
 	canSchedule := make([]v1.Node, 0, len(extenderArgs.Nodes.Items))
 	canNotSchedule := make(map[string]string)
