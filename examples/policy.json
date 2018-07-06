@@ -38,10 +38,10 @@
     ],
     "extenders":[
         {
-            "urlPrefix":"http://127.0.0.1:8089",
+            "urlPrefix":"http://127.0.0.1:8089/scheduler",
             "apiVersion":"v1beta1",
-            "filterVerb":"predicates/ers",
-            "bindVerb":"bind/ers",
+            "filterVerb":"predicates",
+            "bindVerb":"bind",
             "prioritizeVerb":"",
             "weight":1,
             "enableHttps":false,

@@ -13,8 +13,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-func getExtendedResourceClaim(clientset *kubernetes.Clientset, ercName string) (*v1alpha1.ExtendedResourceClaim, error) {
-	erc, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims("").Get(ercName, metav1.GetOptions{})
+func getExtendedResourceClaim(clientset *kubernetes.Clientset, namespace, ercName string) (*v1alpha1.ExtendedResourceClaim, error) {
+	erc, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims(namespace).Get(ercName, metav1.GetOptions{})
 	if err != nil {
 		glog.Errorf("not found extendedresourceclaim: %v", err)
 		return nil, err
@@ -26,8 +26,8 @@ func getExtendedResourceClaim(clientset *kubernetes.Clientset, ercName string) (
 	return erc, nil
 }
 
-func updateExtendedResourceClaim(clientset *kubernetes.Clientset, erc *v1alpha1.ExtendedResourceClaim) error {
-	_, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims("").Update(erc)
+func updateExtendedResourceClaim(clientset *kubernetes.Clientset, namespace string, erc *v1alpha1.ExtendedResourceClaim) error {
+	_, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims(namespace).Update(erc)
 	return err
 }
 
@@ -37,10 +37,11 @@ func getERByRawResourceName(clientset *kubernetes.Clientset, rawResourceName str
 		glog.Errorf("not found extendedresource by rawresourcename: %v", err)
 		return nil, err
 	}
-	var extendedResources *v1alpha1.ExtendedResourceList
-	extendedResources.TypeMeta = erList.TypeMeta
-	extendedResources.ListMeta = erList.ListMeta
-	extendedResources.Items = make([]v1alpha1.ExtendedResource, 0, len(erList.Items))
+	var extendedResources = &v1alpha1.ExtendedResourceList{
+		TypeMeta: erList.TypeMeta,
+		ListMeta: erList.ListMeta,
+		Items:    make([]v1alpha1.ExtendedResource, 0, len(erList.Items)),
+	}
 
 	for _, er := range erList.Items {
 		if er.Spec.RawResourceName == rawResourceName {

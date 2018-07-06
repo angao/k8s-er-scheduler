@@ -29,15 +29,16 @@ func (*SchedulerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	var kubeConfig *string
+	var master, kubeConfig *string
 	if home := homeDir(); home != "" {
 		kubeConfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
 	} else {
 		kubeConfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
+	master = flag.String("master", "http://127.0.0.1:8080", "kubernetes cluster default address")
 	flag.Parse()
 
-	clientset, err := CreateClientset(kubeConfig)
+	clientset, err := CreateClientset(master, kubeConfig)
 	if err != nil {
 		glog.Fatalf("clientset error: %v", err)
 	}
@@ -48,8 +49,9 @@ func main() {
 
 	mux = make(map[string]func(http.ResponseWriter, *http.Request))
 	mux["/"] = welcome
-	mux["/predicates/ers"] = extendedResourceScheduler.Predicates
-	mux["/bind/ers"] = extendedResourceScheduler.Bind
+	mux["/scheduler"] = welcome
+	mux["/scheduler/predicates"] = extendedResourceScheduler.Predicates
+	mux["/scheduler/bind"] = extendedResourceScheduler.Bind
 
 	server := http.Server{
 		Addr:         addr,

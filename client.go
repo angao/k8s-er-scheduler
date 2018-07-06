@@ -7,8 +7,8 @@ import (
 )
 
 // CreateClientset is create a kubernetes client
-func CreateClientset(kubeConfig *string) (*kubernetes.Clientset, error) {
-	config, err := clientcmd.BuildConfigFromFlags("", *kubeConfig)
+func CreateClientset(master, kubeConfig *string) (*kubernetes.Clientset, error) {
+	config, err := clientcmd.BuildConfigFromFlags(*master, *kubeConfig)
 	if err != nil {
 		glog.Errorf("unable to build config: %v", err)
 		return nil, err

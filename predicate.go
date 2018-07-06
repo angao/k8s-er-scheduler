@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 
@@ -73,13 +72,13 @@ func (ers *ExtendedResourceScheduler) Bind(w http.ResponseWriter, r *http.Reques
 	}
 	err := ers.Clientset.CoreV1().Pods(b.Namespace).Bind(b)
 	if err != nil {
+		glog.Errorf("bind failed: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(err.Error()))
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("bind success"))
 }
 
 func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Clientset) *schedulerapi.ExtenderFilterResult {
@@ -106,20 +105,23 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 		}
 	}
 	if len(extendedResourceClaims) == 0 {
+		glog.Error("extendedResourceClaims is emptys")
 		result.Error = "extendedResourceClaims is empty"
 		return &result
 	}
 
 	// Find ExtendedResourceClaim by extendedresourceclaim's name
 	for _, ercName := range extendedResourceClaims {
-		erc, err := getExtendedResourceClaim(clientset, ercName)
+		erc, err := getExtendedResourceClaim(clientset, pod.Namespace, ercName)
 		if err != nil {
+			glog.Errorf("namespace: %s, ercname: %s, getExtendedResourceClaim: %v", pod.Namespace, ercName, err)
 			result.Error = err.Error()
 			return &result
 		}
 		rawResourceName := erc.Spec.RawResourceName
 		erList, err := getERByRawResourceName(clientset, rawResourceName)
 		if err != nil {
+			glog.Errorf("rawResourceName: %s getERByRawResourceName: %v", rawResourceName, err)
 			result.Error = err.Error()
 			return &result
 		}
@@ -130,14 +132,11 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 			for _, name := range extendedResourceNames {
 				er, err := getERByName(clientset, name)
 				if err != nil {
+					glog.Errorf("ername: %s getERByName: %v", name, err)
 					result.Error = err.Error()
 					return &result
 				}
 				extendedResources = append(extendedResources, *er)
-			}
-			if err := checkExtendedResourceNodeAffinity(extendedResources); err != nil {
-				result.Error = err.Error()
-				return &result
 			}
 			erList.Items = append(erList.Items, extendedResources...)
 		}
@@ -173,7 +172,7 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 		}
 
 		erc.Spec.ExtendedResourceNames = extendedResourceNames
-		updateExtendedResourceClaim(clientset, erc)
+		updateExtendedResourceClaim(clientset, pod.Namespace, erc)
 		for _, er := range erList.Items {
 			if er.Spec.ExtendedResourceClaimName != "" {
 				updateExtendedResource(clientset, &er)
@@ -194,18 +193,4 @@ func defaultFailedNodes(nodes []v1.Node) map[string]string {
 		canNotSchedule[node.ObjectMeta.Name] = ""
 	}
 	return canNotSchedule
-}
-
-// check whether the extendedresource is on the same node in extendedresourcenaems
-func checkExtendedResourceNodeAffinity(extendedResources []v1alpha1.ExtendedResource) error {
-	if len(extendedResources) == 0 || len(extendedResources) == 1 {
-		return nil
-	}
-	extendedResource := extendedResources[0]
-	for _, er := range extendedResources {
-		if er.Spec.NodeAffinity != extendedResource.Spec.NodeAffinity {
-			return errors.New("there are two cases in which the nodeAffinity is different in er")
-		}
-	}
-	return nil
 }
