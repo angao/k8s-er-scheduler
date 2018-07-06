@@ -10,6 +10,7 @@ import (
 	"github.com/golang/glog"
 	"k8s.io/api/core/v1"
 	"k8s.io/api/extensions/v1alpha1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	schedulerapi "k8s.io/kubernetes/pkg/scheduler/api/v1"
 )
@@ -48,6 +49,38 @@ func (ers *ExtendedResourceScheduler) Predicates(w http.ResponseWriter, r *http.
 		w.WriteHeader(http.StatusOK)
 		w.Write(resultBody)
 	}
+}
+
+// Bind delegates the action of binding a pod to a node to the extender.
+func (ers *ExtendedResourceScheduler) Bind(w http.ResponseWriter, r *http.Request) {
+	var buf bytes.Buffer
+	body := io.TeeReader(r.Body, &buf)
+	var extenderBindingArgs schedulerapi.ExtenderBindingArgs
+	if err := json.NewDecoder(body).Decode(&extenderBindingArgs); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(err.Error()))
+	}
+	b := &v1.Binding{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: extenderBindingArgs.PodNamespace,
+			Name:      extenderBindingArgs.PodName,
+			UID:       extenderBindingArgs.PodUID,
+		},
+		Target: v1.ObjectReference{
+			Kind: "Node",
+			Name: extenderBindingArgs.Node,
+		},
+	}
+	err := ers.Clientset.CoreV1().Pods(b.Namespace).Bind(b)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(err.Error()))
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("bind success"))
 }
 
 func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Clientset) *schedulerapi.ExtenderFilterResult {
