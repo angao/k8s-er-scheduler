@@ -1,0 +1,19 @@
+apiVersion: extensions/v1alpha1
+kind: ExtendedResource
+metadata:
+  name: ertest
+  labels:
+    app: er
+spec:
+  properties:
+    type: k80
+  rawResourceName: nvidia.com/gpu
+  deviceID: gpu123456789
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values: 
+            - 127.0.0.1

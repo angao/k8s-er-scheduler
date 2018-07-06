@@ -14,42 +14,42 @@ import (
 	schedulerapi "k8s.io/kubernetes/pkg/scheduler/api/v1"
 )
 
-// ExtendedResourceScheduler handle extendedresource scheduler
-type ExtendedResourceScheduler struct {
-	Clientset *kubernetes.Clientset
-}
-
 // Predicates implemented filter functions.
 // The filter list is expected to be a subset of the supplied list.
-func (ers *ExtendedResourceScheduler) Predicates(w http.ResponseWriter, r *http.Request) {
-	var buf bytes.Buffer
-	body := io.TeeReader(r.Body, &buf)
-	glog.V(2).Infof("body: %s", buf.String())
+func Predicates(clientset *kubernetes.Clientset) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var buf bytes.Buffer
+		body := io.TeeReader(r.Body, &buf)
+		glog.V(2).Infof("body: %s", buf.String())
 
-	var extenderArgs schedulerapi.ExtenderArgs
-	var extenderFilterResult *schedulerapi.ExtenderFilterResult
+		var extenderArgs schedulerapi.ExtenderArgs
+		var extenderFilterResult *schedulerapi.ExtenderFilterResult
 
-	if err := json.NewDecoder(body).Decode(&extenderArgs); err != nil {
-		extenderFilterResult = &schedulerapi.ExtenderFilterResult{
-			Nodes:       nil,
-			FailedNodes: nil,
-			Error:       err.Error(),
+		if err := json.NewDecoder(body).Decode(&extenderArgs); err != nil {
+			extenderFilterResult = &schedulerapi.ExtenderFilterResult{
+				Nodes:       nil,
+				FailedNodes: nil,
+				Error:       err.Error(),
+			}
+		} else {
+			extenedResourceScheduler := &ExtendedResourceScheduler{
+				Clientset: clientset,
+			}
+			extenderFilterResult = filter(extenderArgs, extenedResourceScheduler)
 		}
-	} else {
-		extenderFilterResult = filter(extenderArgs, ers.Clientset)
-	}
 
-	w.Header().Set("Content-Type", "application/json")
-	if resultBody, err := json.Marshal(extenderFilterResult); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-	} else {
-		w.WriteHeader(http.StatusOK)
-		w.Write(resultBody)
+		w.Header().Set("Content-Type", "application/json")
+		if resultBody, err := json.Marshal(extenderFilterResult); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+		} else {
+			w.WriteHeader(http.StatusOK)
+			w.Write(resultBody)
+		}
 	}
 }
 
-func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Clientset) *schedulerapi.ExtenderFilterResult {
+func filter(extenderArgs schedulerapi.ExtenderArgs, extenedResourceScheduler *ExtendedResourceScheduler) *schedulerapi.ExtenderFilterResult {
 	pod := extenderArgs.Pod
 	nodes := extenderArgs.Nodes.Items
 
@@ -58,7 +58,7 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 	// default all node scheduling failed
 	defaultNotSchedule := defaultFailedNodes(nodes)
 
-	result := schedulerapi.ExtenderFilterResult{
+	result := &schedulerapi.ExtenderFilterResult{
 		Nodes: &v1.NodeList{
 			Items: canSchedule,
 		},
@@ -66,84 +66,52 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 		Error:       "",
 	}
 
-	extendedResourceClaims := make([]string, 0)
-	for _, container := range pod.Spec.Containers {
-		if len(container.ExtendedResourceClaims) != 0 {
-			extendedResourceClaims = append(extendedResourceClaims, container.ExtendedResourceClaims...)
-		}
+	ercs, err := findExtendedResourceClaims(pod, extenedResourceScheduler)
+	if err != nil {
+		glog.Errorf("find extendedresourceclaims failed: %v", err)
+		result.Error = err.Error()
+		return result
 	}
-	if len(extendedResourceClaims) == 0 {
-		result.Error = "extendedResourceClaims is empty"
-		return &result
-	}
-
-	// Find ExtendedResourceClaim by extendedresourceclaim's name
-	for _, ercName := range extendedResourceClaims {
-		erc, err := getExtendedResourceClaim(clientset, ercName)
+	for _, erc := range ercs {
+		erList, err := findExtendedResourceList(erc, extenedResourceScheduler)
 		if err != nil {
+			glog.Errorf("erc: %v error: %v", erc, err)
 			result.Error = err.Error()
-			return &result
-		}
-		rawResourceName := erc.Spec.RawResourceName
-		erList, err := getERByRawResourceName(clientset, rawResourceName)
-		if err != nil {
-			result.Error = err.Error()
-			return &result
+			return result
 		}
 
-		extendedResourceNames := erc.Spec.ExtendedResourceNames
-		if len(extendedResourceNames) != 0 {
-			extendedResources := make([]v1alpha1.ExtendedResource, 0, len(extendedResourceNames))
-			for _, name := range extendedResourceNames {
-				er, err := getERByName(clientset, name)
-				if err != nil {
-					result.Error = err.Error()
-					return &result
-				}
-				extendedResources = append(extendedResources, *er)
-			}
-			if err := checkExtendedResourceNodeAffinity(extendedResources); err != nil {
-				result.Error = err.Error()
-				return &result
-			}
-			erList.Items = append(erList.Items, extendedResources...)
+		extendedResources := &v1alpha1.ExtendedResourceList{
+			Items: make([]v1alpha1.ExtendedResource, 0),
 		}
-
-		extendedResourceNum := erc.Spec.ExtendedResourceNum
-		// the number of nodes does not satisfy the extendedresourcenum required for pod
-		if int64(len(nodes)) < extendedResourceNum {
-			result.Error = "the number of nodes does not satisfy the extendedresourcenum required for pod"
-			return &result
-		}
-
 		for _, er := range erList.Items {
 			nodeAffinity := er.Spec.NodeAffinity
-			if nodeAffinity == nil {
-				result.Error = "extendedresource nodeAffinity is empty"
-				return &result
+			requirements := erc.Spec.MetadataRequirements
+
+			if nodeAffinity == nil ||
+				!mapInMap(requirements.MatchLabels, er.Spec.Properties) ||
+				!labelMatchesLabelSelectorExpressions(requirements.MatchExpressions, er.Spec.Properties) {
+				continue
 			}
+
 			nodeSelectorTerms := nodeAffinity.Required.NodeSelectorTerms
 			for _, node := range nodes {
 				// set er related with erc
 				if nodeMatchesNodeSelectorTerms(&node, nodeSelectorTerms) {
-					canSchedule = append(canSchedule, node)
-					extendedResourceNames = append(extendedResourceNames, er.Name)
+					erc.Spec.ExtendedResourceNames = append(erc.Spec.ExtendedResourceNames, er.Name)
 					er.Spec.ExtendedResourceClaimName = erc.Name
+					extendedResources.Items = append(extendedResources.Items, er)
+					canSchedule = append(canSchedule, node)
 				}
 				canNotSchedule[node.ObjectMeta.Name] = "node's label is not satisfy er's nodeAffinity"
 			}
 		}
 
-		if int64(len(canSchedule)) < extendedResourceNum {
-			result.Error = "The extendedresource that can be scheduled are insufficient"
-			return &result
-		}
+		extendedResourceNum := erc.Spec.ExtendedResourceNum
 
-		erc.Spec.ExtendedResourceNames = extendedResourceNames
-		updateExtendedResourceClaim(clientset, erc)
-		for _, er := range erList.Items {
+		extenedResourceScheduler.UpdateExtendedResourceClaim(pod.Namespace, erc)
+		for _, er := range extendedResources.Items {
 			if er.Spec.ExtendedResourceClaimName != "" {
-				updateExtendedResource(clientset, &er)
+				extenedResourceScheduler.UpdateExtendedResource(&er)
 			}
 		}
 		canSchedule = canSchedule[:extendedResourceNum]
@@ -151,7 +119,49 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 	}
 
 	result.Nodes.Items = canSchedule
-	return &result
+	return result
+}
+
+func findExtendedResourceClaims(pod v1.Pod, extenedResourceScheduler *ExtendedResourceScheduler) ([]*v1alpha1.ExtendedResourceClaim, error) {
+	extendedResourceClaimNames := make([]string, 0)
+	for _, container := range pod.Spec.Containers {
+		if len(container.ExtendedResourceClaims) != 0 {
+			extendedResourceClaimNames = append(extendedResourceClaimNames, container.ExtendedResourceClaims...)
+		}
+	}
+	if len(extendedResourceClaimNames) == 0 {
+		return nil, errors.New("extendedresourceclaims not set")
+	}
+	extendedResourceClaims := make([]*v1alpha1.ExtendedResourceClaim, 0)
+	for _, ercName := range extendedResourceClaimNames {
+		erc, err := extenedResourceScheduler.FindExtendedResourceClaim(pod.Namespace, ercName)
+		if err != nil {
+			return nil, err
+		}
+		extendedResourceClaims = append(extendedResourceClaims, erc)
+	}
+	return extendedResourceClaims, nil
+}
+
+func findExtendedResourceList(erc *v1alpha1.ExtendedResourceClaim, extenedResourceScheduler *ExtendedResourceScheduler) (*v1alpha1.ExtendedResourceList, error) {
+	rawResourceName := erc.Spec.RawResourceName
+	erList, err := extenedResourceScheduler.FindERByRawResourceName(rawResourceName)
+	if err != nil {
+		return nil, err
+	}
+	extendedResourceNames := erc.Spec.ExtendedResourceNames
+	if len(extendedResourceNames) != 0 {
+		extendedResources := make([]v1alpha1.ExtendedResource, 0, len(extendedResourceNames))
+		for _, name := range extendedResourceNames {
+			er, err := extenedResourceScheduler.FindERByName(name)
+			if err != nil {
+				return nil, err
+			}
+			extendedResources = append(extendedResources, *er)
+		}
+		erList.Items = append(erList.Items, extendedResources...)
+	}
+	return erList, nil
 }
 
 // default set all node is fail
@@ -161,18 +171,4 @@ func defaultFailedNodes(nodes []v1.Node) map[string]string {
 		canNotSchedule[node.ObjectMeta.Name] = ""
 	}
 	return canNotSchedule
-}
-
-// check whether the extendedresource is on the same node in extendedresourcenaems
-func checkExtendedResourceNodeAffinity(extendedResources []v1alpha1.ExtendedResource) error {
-	if len(extendedResources) == 0 || len(extendedResources) == 1 {
-		return nil
-	}
-	extendedResource := extendedResources[0]
-	for _, er := range extendedResources {
-		if er.Spec.NodeAffinity != extendedResource.Spec.NodeAffinity {
-			return errors.New("there are two cases in which the nodeAffinity is different in er")
-		}
-	}
-	return nil
 }

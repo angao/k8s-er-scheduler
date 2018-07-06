@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	addr = ":8080"
+	addr = ":8089"
 )
 
 var mux map[string]func(http.ResponseWriter, *http.Request)
@@ -21,36 +21,34 @@ var mux map[string]func(http.ResponseWriter, *http.Request)
 type SchedulerHandler struct{}
 
 func (*SchedulerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	glog.V(2).Infof("request url: %s", r.URL.Path)
 	if h, ok := mux[r.URL.Path]; ok {
 		h(w, r)
+		return
 	}
 	w.WriteHeader(http.StatusBadRequest)
 	io.WriteString(w, "Your request URL is not found")
 }
 
 func main() {
-	var kubeConfig *string
+	var master, kubeConfig *string
 	if home := homeDir(); home != "" {
 		kubeConfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
 	} else {
 		kubeConfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
+	master = flag.String("master", "http://127.0.0.1:8080", "kubernetes cluster default address")
 	flag.Parse()
 
-	clientset, err := CreateClientset(kubeConfig)
+	clientset, err := CreateClientset(master, kubeConfig)
 	if err != nil {
-		glog.Fatalf("clientset error: %v", err)
-	}
-
-	extendedResourceScheduler := &ExtendedResourceScheduler{
-		Clientset: clientset,
+		glog.Fatalf("create clientset error: %v", err)
 	}
 
 	mux = make(map[string]func(http.ResponseWriter, *http.Request))
-	mux["/"] = welcome
-	mux["/predicates/ers"] = extendedResourceScheduler.Predicates
+	mux["/scheduler/predicates"] = Predicates(clientset)
 
-	server := http.Server{
+	server := &http.Server{
 		Addr:         addr,
 		Handler:      &SchedulerHandler{},
 		ReadTimeout:  10 * time.Second,
@@ -62,11 +60,6 @@ func main() {
 	if err := server.ListenAndServe(); err != nil {
 		glog.Fatalf("scheduler server start failed: %v", err)
 	}
-}
-
-func welcome(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusOK)
-	io.WriteString(w, "This is k8s extended resource scheduler")
 }
 
 func homeDir() string {
