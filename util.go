@@ -41,10 +41,12 @@ func getERByRawResourceName(clientset *kubernetes.Clientset, rawResourceName str
 		log.Errorf("not found extendedresource by rawresourcename: %v", err)
 		return nil, err
 	}
-	var extendedResources *v1alpha1.ExtendedResourceList
-	extendedResources.TypeMeta = erList.TypeMeta
-	extendedResources.ListMeta = erList.ListMeta
-	extendedResources.Items = make([]v1alpha1.ExtendedResource, 0, len(erList.Items))
+	log.Infof("erlist: %+v\n", erList)
+	var extendedResources = &v1alpha1.ExtendedResourceList{
+		TypeMeta: erList.TypeMeta,
+		ListMeta: erList.ListMeta,
+		Items:    make([]v1alpha1.ExtendedResource, 0, len(erList.Items)),
+	}
 
 	for _, er := range erList.Items {
 		if er.Spec.RawResourceName == rawResourceName {

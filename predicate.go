@@ -89,7 +89,7 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 	pod := extenderArgs.Pod
 	nodes := extenderArgs.Nodes.Items
 
-	log.Infof("start to filter pod: %v, nodes: %v", pod, nodes)
+	log.Infof("start to filter pod: %+v, nodes: %+v", pod, nodes)
 
 	canSchedule := make([]v1.Node, 0, len(extenderArgs.Nodes.Items))
 	canNotSchedule := make(map[string]string)
@@ -105,7 +105,7 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 	}
 
 	extendedResourceClaims := make([]string, 0)
-	log.Infof("extendedResourceClaims: %v\n", pod.Spec.Containers[0].ExtendedResourceClaims)
+	log.Infof("extendedResourceClaims: %+v\n", pod.Spec.Containers[0].ExtendedResourceClaims)
 	for _, container := range pod.Spec.Containers {
 		if len(container.ExtendedResourceClaims) != 0 {
 			extendedResourceClaims = append(extendedResourceClaims, container.ExtendedResourceClaims...)
