@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 
@@ -83,7 +82,6 @@ func (ers *ExtendedResourceScheduler) Bind(w http.ResponseWriter, r *http.Reques
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("bind success"))
 }
 
 func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Clientset) *schedulerapi.ExtenderFilterResult {
@@ -145,11 +143,6 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 				}
 				extendedResources = append(extendedResources, *er)
 			}
-			// if err := checkExtendedResourceNodeAffinity(extendedResources); err != nil {
-			// 	log.Errorf("checkExtendedResourceNodeAffinity: %+v\n", err)
-			// 	result.Error = err.Error()
-			// 	return &result
-			// }
 			erList.Items = append(erList.Items, extendedResources...)
 		}
 
@@ -172,7 +165,7 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 				if nodeMatchesNodeSelectorTerms(&node, nodeSelectorTerms) {
 					canSchedule = append(canSchedule, node)
 					extendedResourceNames = append(extendedResourceNames, er.Name)
-					er.Spec.ExtendedResourceClaimName = erc.Name
+					er.Spec.ExtendedResourceClaimName = erc.ObjectMeta.Name
 				}
 				canNotSchedule[node.ObjectMeta.Name] = "node's label is not satisfy er's nodeAffinity"
 			}
@@ -205,19 +198,4 @@ func defaultFailedNodes(nodes []v1.Node) map[string]string {
 		canNotSchedule[node.ObjectMeta.Name] = ""
 	}
 	return canNotSchedule
-}
-
-// check whether the extendedresource is on the same node in extendedresourcenaems
-func checkExtendedResourceNodeAffinity(extendedResources []v1alpha1.ExtendedResource) error {
-	if len(extendedResources) == 0 || len(extendedResources) == 1 {
-		return nil
-	}
-	extendedResource := extendedResources[0]
-	for _, er := range extendedResources {
-		log.Infof("")
-		if er.Spec.NodeAffinity != extendedResource.Spec.NodeAffinity {
-			return errors.New("there are two cases in which the nodeAffinity is different in er")
-		}
-	}
-	return nil
 }
