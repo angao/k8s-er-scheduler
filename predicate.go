@@ -73,9 +73,10 @@ func (ers *ExtendedResourceScheduler) Bind(w http.ResponseWriter, r *http.Reques
 			Name: extenderBindingArgs.Node,
 		},
 	}
-	log.Info("start to bind: %v", extenderBindingArgs)
+	log.Infof("start to bind: %+v\n", extenderBindingArgs)
 	err := ers.Clientset.CoreV1().Pods(b.Namespace).Bind(b)
 	if err != nil {
+		log.Errorf("bind error: %+v\n", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(err.Error()))
