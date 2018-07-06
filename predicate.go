@@ -55,6 +55,7 @@ func (ers *ExtendedResourceScheduler) Bind(w http.ResponseWriter, r *http.Reques
 	body := io.TeeReader(r.Body, &buf)
 	var extenderBindingArgs schedulerapi.ExtenderBindingArgs
 	if err := json.NewDecoder(body).Decode(&extenderBindingArgs); err != nil {
+		glog.Errorf("json decode error: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(err.Error()))
@@ -151,6 +152,7 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 		for _, er := range erList.Items {
 			nodeAffinity := er.Spec.NodeAffinity
 			if nodeAffinity == nil {
+				glog.Error("extendedresource nodeAffinity is empty")
 				result.Error = "extendedresource nodeAffinity is empty"
 				return &result
 			}
@@ -167,6 +169,7 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 		}
 
 		if int64(len(canSchedule)) < extendedResourceNum {
+			glog.Error("The extendedresource that can be scheduled are insufficient")
 			result.Error = "The extendedresource that can be scheduled are insufficient"
 			return &result
 		}
