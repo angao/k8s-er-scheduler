@@ -14,8 +14,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-func getExtendedResourceClaim(clientset *kubernetes.Clientset, ercName string) (*v1alpha1.ExtendedResourceClaim, error) {
-	erc, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims("default").Get(ercName, metav1.GetOptions{})
+func getExtendedResourceClaim(clientset *kubernetes.Clientset, namespace, ercName string) (*v1alpha1.ExtendedResourceClaim, error) {
+	erc, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims(namespace).Get(ercName, metav1.GetOptions{})
 	if err != nil {
 		glog.Errorf("not found extendedresourceclaim: %v", err)
 		log.Errorf("not found extendedresourceclaim: %v", err)
@@ -29,8 +29,8 @@ func getExtendedResourceClaim(clientset *kubernetes.Clientset, ercName string) (
 	return erc, nil
 }
 
-func updateExtendedResourceClaim(clientset *kubernetes.Clientset, erc *v1alpha1.ExtendedResourceClaim) error {
-	_, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims("default").Update(erc)
+func updateExtendedResourceClaim(clientset *kubernetes.Clientset, namespace string, erc *v1alpha1.ExtendedResourceClaim) error {
+	_, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims(namespace).Update(erc)
 	return err
 }
 

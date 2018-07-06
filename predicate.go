@@ -80,7 +80,7 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 
 	// Find ExtendedResourceClaim by extendedresourceclaim's name
 	for _, ercName := range extendedResourceClaims {
-		erc, err := getExtendedResourceClaim(clientset, ercName)
+		erc, err := getExtendedResourceClaim(clientset, pod.ObjectMeta.Namespace, ercName)
 		if err != nil {
 			result.Error = err.Error()
 			return &result
@@ -141,7 +141,7 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 		}
 
 		erc.Spec.ExtendedResourceNames = extendedResourceNames
-		updateExtendedResourceClaim(clientset, erc)
+		updateExtendedResourceClaim(clientset, pod.ObjectMeta.Namespace, erc)
 		for _, er := range erList.Items {
 			if er.Spec.ExtendedResourceClaimName != "" {
 				updateExtendedResource(clientset, &er)
