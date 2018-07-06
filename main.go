@@ -22,7 +22,7 @@ var mux map[string]func(http.ResponseWriter, *http.Request)
 type SchedulerHandler struct{}
 
 func (*SchedulerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	log.Info("request url: %v\n", r.URL.Path)
+	log.Infof("request url: %v\n", r.URL.Path)
 	if h, ok := mux[r.URL.Path]; ok {
 		h(w, r)
 	}
