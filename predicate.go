@@ -121,12 +121,14 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 	for _, ercName := range extendedResourceClaims {
 		erc, err := getExtendedResourceClaim(clientset, pod.ObjectMeta.Namespace, ercName)
 		if err != nil {
+			log.Errorf("getExtendedResourceClaim: %+v\n", err)
 			result.Error = err.Error()
 			return &result
 		}
 		rawResourceName := erc.Spec.RawResourceName
 		erList, err := getERByRawResourceName(clientset, rawResourceName)
 		if err != nil {
+			log.Errorf("getERByRawResourceName: %+v\n", err)
 			result.Error = err.Error()
 			return &result
 		}
@@ -137,15 +139,17 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 			for _, name := range extendedResourceNames {
 				er, err := getERByName(clientset, name)
 				if err != nil {
+					log.Errorf("getERByName: %+v\n", err)
 					result.Error = err.Error()
 					return &result
 				}
 				extendedResources = append(extendedResources, *er)
 			}
-			if err := checkExtendedResourceNodeAffinity(extendedResources); err != nil {
-				result.Error = err.Error()
-				return &result
-			}
+			// if err := checkExtendedResourceNodeAffinity(extendedResources); err != nil {
+			// 	log.Errorf("checkExtendedResourceNodeAffinity: %+v\n", err)
+			// 	result.Error = err.Error()
+			// 	return &result
+			// }
 			erList.Items = append(erList.Items, extendedResources...)
 		}
 
@@ -210,6 +214,7 @@ func checkExtendedResourceNodeAffinity(extendedResources []v1alpha1.ExtendedReso
 	}
 	extendedResource := extendedResources[0]
 	for _, er := range extendedResources {
+		log.Infof("")
 		if er.Spec.NodeAffinity != extendedResource.Spec.NodeAffinity {
 			return errors.New("there are two cases in which the nodeAffinity is different in er")
 		}
