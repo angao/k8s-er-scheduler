@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: es
+  namespace: default
+spec:
+  restartPolicy: OnFailure
+  containers:
+    - name: es
+      image: "nginx"
+      extendedResourceClaims: 
+      - "erctest"
