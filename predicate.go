@@ -106,7 +106,7 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 		}
 	}
 	if len(extendedResourceClaims) == 0 {
-		glog.Error("extendedResourceClaims is emptys")
+		glog.Error("extendedResourceClaims is empty")
 		result.Error = "extendedResourceClaims is empty"
 		return &result
 	}
@@ -145,17 +145,20 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, clientset *kubernetes.Client
 		extendedResourceNum := erc.Spec.ExtendedResourceNum
 		// the number of nodes does not satisfy the extendedresourcenum required for pod
 		if int64(len(nodes)) < extendedResourceNum {
-			result.Error = "the number of nodes does not satisfy the extendedresourcenum required for pod"
+			result.Error = "the number of nodes does not satisfy the extendedresourcenum that's required for pod"
 			return &result
 		}
 
 		for _, er := range erList.Items {
 			nodeAffinity := er.Spec.NodeAffinity
-			if nodeAffinity == nil {
-				glog.Error("extendedresource nodeAffinity is empty")
-				result.Error = "extendedresource nodeAffinity is empty"
-				return &result
+			requirements := erc.Spec.MetadataRequirements
+
+			if nodeAffinity == nil ||
+				!mapInMap(requirements.MatchLabels, er.Spec.Properties) ||
+				!labelMatchesLabelSelectorExpressions(requirements.MatchExpressions, er.Spec.Properties) {
+				continue
 			}
+
 			nodeSelectorTerms := nodeAffinity.Required.NodeSelectorTerms
 			for _, node := range nodes {
 				// set er related with erc

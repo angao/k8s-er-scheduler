@@ -6,7 +6,7 @@ metadata:
     app: er
 spec:
   properties:
-    type: nvidia
+    type: k80
   rawResourceName: nvidia.com/gpu
   deviceID: gpu123456789
   nodeAffinity:

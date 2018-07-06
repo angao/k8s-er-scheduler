@@ -65,6 +65,20 @@ func updateExtendedResource(clientset *kubernetes.Clientset, er *v1alpha1.Extend
 	return err
 }
 
+// whether properties contain all labels, if contain all then return true, or return false
+func mapInMap(labels, properties map[string]string) bool {
+	if len(labels) == 0 {
+		return true
+	}
+	for k, v := range labels {
+		if vv, ok := properties[k]; ok && v == vv {
+			return true
+		}
+		return false
+	}
+	return false
+}
+
 // nodeMatchesNodeSelectorTerms checks if a node's labels satisfy a list of node selector terms,
 // terms are ORed, and an empty list of terms will match nothing.
 func nodeMatchesNodeSelectorTerms(node *v1.Node, nodeSelectorTerms []v1.NodeSelectorTerm) bool {
@@ -105,6 +119,46 @@ func nodeSelectorRequirementsAsSelector(nsm []v1.NodeSelectorRequirement) (label
 			op = selection.LessThan
 		default:
 			return nil, fmt.Errorf("%q is not a valid node selector operator", expr.Operator)
+		}
+		r, err := labels.NewRequirement(expr.Key, op, expr.Values)
+		if err != nil {
+			return nil, err
+		}
+		selector = selector.Add(*r)
+	}
+	return selector, nil
+}
+
+func labelMatchesLabelSelectorExpressions(matchExpressions []metav1.LabelSelectorRequirement, mLabels map[string]string) bool {
+	labelSelector, err := labelSelectorRequirementsAsSelector(matchExpressions)
+	if err != nil {
+		glog.V(10).Infof("Failed to parse MatchExpressions: %+v, regarding as not match.", matchExpressions)
+		return false
+	}
+	if labelSelector.Matches(labels.Set(mLabels)) {
+		return true
+	}
+	return false
+}
+
+func labelSelectorRequirementsAsSelector(lsr []metav1.LabelSelectorRequirement) (labels.Selector, error) {
+	if len(lsr) == 0 {
+		return labels.Nothing(), nil
+	}
+	selector := labels.NewSelector()
+	for _, expr := range lsr {
+		var op selection.Operator
+		switch expr.Operator {
+		case metav1.LabelSelectorOpIn:
+			op = selection.In
+		case metav1.LabelSelectorOpNotIn:
+			op = selection.NotIn
+		case metav1.LabelSelectorOpExists:
+			op = selection.Exists
+		case metav1.LabelSelectorOpDoesNotExist:
+			op = selection.DoesNotExist
+		default:
+			return nil, fmt.Errorf("%q is not a valid label selector operator", expr.Operator)
 		}
 		r, err := labels.NewRequirement(expr.Key, op, expr.Values)
 		if err != nil {

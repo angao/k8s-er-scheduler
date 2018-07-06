@@ -21,6 +21,7 @@ var mux map[string]func(http.ResponseWriter, *http.Request)
 type SchedulerHandler struct{}
 
 func (*SchedulerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	glog.V(2).Infof("request url: %s", r.URL.Path)
 	if h, ok := mux[r.URL.Path]; ok {
 		h(w, r)
 	}
@@ -43,15 +44,15 @@ func main() {
 		glog.Fatalf("clientset error: %v", err)
 	}
 
-	extendedResourceScheduler := &ExtendedResourceScheduler{
+	ers := &ExtendedResourceScheduler{
 		Clientset: clientset,
 	}
 
 	mux = make(map[string]func(http.ResponseWriter, *http.Request))
 	mux["/"] = welcome
 	mux["/scheduler"] = welcome
-	mux["/scheduler/predicates"] = extendedResourceScheduler.Predicates
-	mux["/scheduler/bind"] = extendedResourceScheduler.Bind
+	mux["/scheduler/predicates"] = ers.Predicates
+	mux["/scheduler/bind"] = ers.Bind
 
 	server := http.Server{
 		Addr:         addr,
