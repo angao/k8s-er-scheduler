@@ -51,8 +51,9 @@ func main() {
 
 	mux = make(map[string]func(http.ResponseWriter, *http.Request))
 	mux["/"] = welcome
-	mux["/predicates/ers"] = extendedResourceScheduler.Predicates
-	mux["/bind/ers"] = extendedResourceScheduler.Bind
+	mux["/scheduler"] = welcome
+	mux["/scheduler/predicates"] = extendedResourceScheduler.Predicates
+	mux["/scheduler/bind"] = extendedResourceScheduler.Bind
 
 	server := http.Server{
 		Addr:         addr,
