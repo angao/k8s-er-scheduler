@@ -37,7 +37,7 @@ func main() {
 	} else {
 		kubeConfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
-	master = flag.String("master", "http://192.168.56.3:8080", "kubernetes server address")
+	master = flag.String("master", "http://127.0.0.1:8080", "kubernetes server address")
 	flag.Parse()
 
 	clientset, err := CreateClientset(*master, *kubeConfig)
