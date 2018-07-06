@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cloudflare/cfssl/log"
 	"github.com/golang/glog"
 	"k8s.io/api/core/v1"
 	"k8s.io/api/extensions/v1alpha1"
@@ -14,20 +15,22 @@ import (
 )
 
 func getExtendedResourceClaim(clientset *kubernetes.Clientset, ercName string) (*v1alpha1.ExtendedResourceClaim, error) {
-	erc, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims("").Get(ercName, metav1.GetOptions{})
+	erc, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims("default").Get(ercName, metav1.GetOptions{})
 	if err != nil {
 		glog.Errorf("not found extendedresourceclaim: %v", err)
+		log.Errorf("not found extendedresourceclaim: %v", err)
 		return nil, err
 	}
 	if len(erc.Spec.ExtendedResourceNames) == 0 && erc.Spec.ExtendedResourceNum == 0 {
 		glog.Errorf("ExtendedResourceNames and ExtendedResourceNum are empty")
+		log.Errorf("ExtendedResourceNames and ExtendedResourceNum are empty")
 		return nil, errors.New("ExtendedResourceNames and ExtendedResourceNum are empty")
 	}
 	return erc, nil
 }
 
 func updateExtendedResourceClaim(clientset *kubernetes.Clientset, erc *v1alpha1.ExtendedResourceClaim) error {
-	_, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims("").Update(erc)
+	_, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims("default").Update(erc)
 	return err
 }
 
@@ -35,6 +38,7 @@ func getERByRawResourceName(clientset *kubernetes.Clientset, rawResourceName str
 	erList, err := clientset.ExtensionsV1alpha1().ExtendedResources().List(metav1.ListOptions{})
 	if err != nil {
 		glog.Errorf("not found extendedresource by rawresourcename: %v", err)
+		log.Errorf("not found extendedresource by rawresourcename: %v", err)
 		return nil, err
 	}
 	var extendedResources *v1alpha1.ExtendedResourceList
@@ -54,6 +58,7 @@ func getERByName(clientset *kubernetes.Clientset, erName string) (*v1alpha1.Exte
 	er, err := clientset.ExtensionsV1alpha1().ExtendedResources().Get(erName, metav1.GetOptions{})
 	if err != nil {
 		glog.Errorf("not found extendedresource by ername: %v", err)
+		log.Errorf("not found extendedresource by ername: %v", err)
 		return nil, err
 	}
 	return er, nil
