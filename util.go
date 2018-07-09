@@ -13,8 +13,14 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-func getExtendedResourceClaim(clientset *kubernetes.Clientset, namespace, ercName string) (*v1alpha1.ExtendedResourceClaim, error) {
-	erc, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims(namespace).Get(ercName, metav1.GetOptions{})
+// ExtendedResourceScheduler is a set of methods that can find extendedresource and extendedresourceclaim
+type ExtendedResourceScheduler struct {
+	Clientset *kubernetes.Clientset
+}
+
+// FindExtendedResourceClaim find extendedresourceclaim by namespace and ercname
+func (e *ExtendedResourceScheduler) FindExtendedResourceClaim(namespace, ercName string) (*v1alpha1.ExtendedResourceClaim, error) {
+	erc, err := e.Clientset.ExtensionsV1alpha1().ExtendedResourceClaims(namespace).Get(ercName, metav1.GetOptions{})
 	if err != nil {
 		glog.Errorf("not found extendedresourceclaim: %v", err)
 		return nil, err
@@ -26,13 +32,15 @@ func getExtendedResourceClaim(clientset *kubernetes.Clientset, namespace, ercNam
 	return erc, nil
 }
 
-func updateExtendedResourceClaim(clientset *kubernetes.Clientset, namespace string, erc *v1alpha1.ExtendedResourceClaim) error {
-	_, err := clientset.ExtensionsV1alpha1().ExtendedResourceClaims(namespace).Update(erc)
+// UpdateExtendedResourceClaim update extendedresourceclaim by namespace and erc
+func (e *ExtendedResourceScheduler) UpdateExtendedResourceClaim(namespace string, erc *v1alpha1.ExtendedResourceClaim) error {
+	_, err := e.Clientset.ExtensionsV1alpha1().ExtendedResourceClaims(namespace).Update(erc)
 	return err
 }
 
-func getERByRawResourceName(clientset *kubernetes.Clientset, rawResourceName string) (*v1alpha1.ExtendedResourceList, error) {
-	erList, err := clientset.ExtensionsV1alpha1().ExtendedResources().List(metav1.ListOptions{})
+// FindERByRawResourceName find extendedresource by rawresourcename
+func (e *ExtendedResourceScheduler) FindERByRawResourceName(rawResourceName string) (*v1alpha1.ExtendedResourceList, error) {
+	erList, err := e.Clientset.ExtensionsV1alpha1().ExtendedResources().List(metav1.ListOptions{})
 	if err != nil {
 		glog.Errorf("not found extendedresource by rawresourcename: %v", err)
 		return nil, err
@@ -51,8 +59,9 @@ func getERByRawResourceName(clientset *kubernetes.Clientset, rawResourceName str
 	return extendedResources, nil
 }
 
-func getERByName(clientset *kubernetes.Clientset, erName string) (*v1alpha1.ExtendedResource, error) {
-	er, err := clientset.ExtensionsV1alpha1().ExtendedResources().Get(erName, metav1.GetOptions{})
+// FindERByName find extendedresource by ername
+func (e *ExtendedResourceScheduler) FindERByName(erName string) (*v1alpha1.ExtendedResource, error) {
+	er, err := e.Clientset.ExtensionsV1alpha1().ExtendedResources().Get(erName, metav1.GetOptions{})
 	if err != nil {
 		glog.Errorf("not found extendedresource by ername: %v", err)
 		return nil, err
@@ -60,8 +69,9 @@ func getERByName(clientset *kubernetes.Clientset, erName string) (*v1alpha1.Exte
 	return er, nil
 }
 
-func updateExtendedResource(clientset *kubernetes.Clientset, er *v1alpha1.ExtendedResource) error {
-	_, err := clientset.ExtensionsV1alpha1().ExtendedResources().Update(er)
+// UpdateExtendedResource update extendedresource
+func (e *ExtendedResourceScheduler) UpdateExtendedResource(er *v1alpha1.ExtendedResource) error {
+	_, err := e.Clientset.ExtensionsV1alpha1().ExtendedResources().Update(er)
 	return err
 }
 
@@ -85,7 +95,7 @@ func nodeMatchesNodeSelectorTerms(node *v1.Node, nodeSelectorTerms []v1.NodeSele
 	for _, req := range nodeSelectorTerms {
 		nodeSelector, err := nodeSelectorRequirementsAsSelector(req.MatchExpressions)
 		if err != nil {
-			glog.V(10).Infof("Failed to parse MatchExpressions: %+v, regarding as not match.", req.MatchExpressions)
+			glog.V(3).Infof("Failed to parse MatchExpressions: %+v, regarding as not match.", req.MatchExpressions)
 			return false
 		}
 		if nodeSelector.Matches(labels.Set(node.Labels)) {
@@ -130,9 +140,12 @@ func nodeSelectorRequirementsAsSelector(nsm []v1.NodeSelectorRequirement) (label
 }
 
 func labelMatchesLabelSelectorExpressions(matchExpressions []metav1.LabelSelectorRequirement, mLabels map[string]string) bool {
+	if len(matchExpressions) == 0 {
+		return true
+	}
 	labelSelector, err := labelSelectorRequirementsAsSelector(matchExpressions)
 	if err != nil {
-		glog.V(10).Infof("Failed to parse MatchExpressions: %+v, regarding as not match.", matchExpressions)
+		glog.V(3).Infof("Failed to parse MatchExpressions: %+v, regarding as not match.", matchExpressions)
 		return false
 	}
 	if labelSelector.Matches(labels.Set(mLabels)) {

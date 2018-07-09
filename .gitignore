@@ -126,4 +126,5 @@ zz_generated.openapi.go
 /bazel-*
 *.pyc
 
-kube-er-scheduler
+k8s-er-scheduler
+k8s-er-scheduler.exe
