@@ -1,0 +1,11 @@
+apiVersion: extensions/v1alpha1
+kind: ExtendedResourceClaim
+metadata:
+  name: erctest
+  namespace: default
+  labels:
+    app: erc
+spec:
+  rawResourceName: nvidia.com/gpu
+  extendResourceNum: 1
+  
