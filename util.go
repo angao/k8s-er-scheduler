@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/golang/glog"
 	"k8s.io/api/core/v1"
@@ -38,29 +39,22 @@ func (e *ExtendedResourceScheduler) UpdateExtendedResourceClaim(namespace string
 	return err
 }
 
-// FindERByRawResourceName find extendedresource by rawresourcename
-func (e *ExtendedResourceScheduler) FindERByRawResourceName(rawResourceName string) (*v1alpha1.ExtendedResourceList, error) {
-	erList, err := e.Clientset.ExtensionsV1alpha1().ExtendedResources().List(metav1.ListOptions{})
-	if err != nil {
-		glog.Errorf("not found extendedresource by rawresourcename: %v", err)
-		return nil, err
-	}
-	var extendedResources = &v1alpha1.ExtendedResourceList{
-		TypeMeta: erList.TypeMeta,
-		ListMeta: erList.ListMeta,
-		Items:    make([]v1alpha1.ExtendedResource, 0, len(erList.Items)),
-	}
-
-	for _, er := range erList.Items {
-		if er.Spec.RawResourceName == rawResourceName {
-			extendedResources.Items = append(extendedResources.Items, er)
+// FindExtendedResourceList get a set of ExtendedResource
+func (e *ExtendedResourceScheduler) FindExtendedResourceList(erNames []string) ([]*v1alpha1.ExtendedResource, error) {
+	extendedResources := make([]*v1alpha1.ExtendedResource, 0)
+	for _, name := range erNames {
+		extendedResource, err := e.FindExtendedResource(name)
+		if err != nil {
+			glog.Errorf("find extendedresource by ernames: %v", err)
+			return nil, err
 		}
+		extendedResources = append(extendedResources, extendedResource)
 	}
 	return extendedResources, nil
 }
 
-// FindERByName find extendedresource by ername
-func (e *ExtendedResourceScheduler) FindERByName(erName string) (*v1alpha1.ExtendedResource, error) {
+// FindExtendedResource find extendedresource by ername
+func (e *ExtendedResourceScheduler) FindExtendedResource(erName string) (*v1alpha1.ExtendedResource, error) {
 	er, err := e.Clientset.ExtensionsV1alpha1().ExtendedResources().Get(erName, metav1.GetOptions{})
 	if err != nil {
 		glog.Errorf("not found extendedresource by ername: %v", err)
@@ -73,6 +67,67 @@ func (e *ExtendedResourceScheduler) FindERByName(erName string) (*v1alpha1.Exten
 func (e *ExtendedResourceScheduler) UpdateExtendedResource(er *v1alpha1.ExtendedResource) error {
 	_, err := e.Clientset.ExtensionsV1alpha1().ExtendedResources().Update(er)
 	return err
+}
+
+// FindNode is get node
+func (e *ExtendedResourceScheduler) FindNode(name string) (*v1.Node, error) {
+	node, err := e.Clientset.CoreV1().Nodes().Get(name, metav1.GetOptions{})
+	if err != nil {
+		glog.Errorf("find node failed: %v", err)
+		return nil, err
+	}
+	return node, nil
+}
+
+// UpdateNodeStatus is used to update node status object
+func (e *ExtendedResourceScheduler) updateNodeStatus(node *v1.Node) error {
+	_, err := e.Clientset.CoreV1().Nodes().UpdateStatus(node)
+	if err != nil {
+		glog.Errorf("update node failed: %v", err)
+		return err
+	}
+	return nil
+}
+
+// FindPod is get pod by name and namespace
+func (e *ExtendedResourceScheduler) FindPod(name, namespace string) (*v1.Pod, error) {
+	pod, err := e.Clientset.CoreV1().Pods(namespace).Get(name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return pod, nil
+}
+
+// Bind is assign pod to node
+func (e *ExtendedResourceScheduler) Bind(namespace string, b *v1.Binding) error {
+	err := e.Clientset.CoreV1().Pods(namespace).Bind(b)
+	if err != nil {
+		glog.Errorf("bind failed: %v", err)
+		return err
+	}
+	return nil
+}
+
+// FindExtendedResourceClaimList get a list of ExtendedResourceClaim by pod
+func (e *ExtendedResourceScheduler) FindExtendedResourceClaimList(pod v1.Pod) ([]*v1alpha1.ExtendedResourceClaim, error) {
+	extendedResourceClaimNames := make([]string, 0)
+	for _, container := range pod.Spec.Containers {
+		if len(container.ExtendedResourceClaims) != 0 {
+			extendedResourceClaimNames = append(extendedResourceClaimNames, container.ExtendedResourceClaims...)
+		}
+	}
+	if len(extendedResourceClaimNames) == 0 {
+		return nil, errors.New("extendedresourceclaims not set")
+	}
+	extendedResourceClaims := make([]*v1alpha1.ExtendedResourceClaim, 0)
+	for _, ercName := range extendedResourceClaimNames {
+		erc, err := e.FindExtendedResourceClaim(pod.Namespace, ercName)
+		if err != nil {
+			return nil, err
+		}
+		extendedResourceClaims = append(extendedResourceClaims, erc)
+	}
+	return extendedResourceClaims, nil
 }
 
 // whether properties contain all labels, if contain all then return true, or return false
@@ -89,54 +144,19 @@ func mapInMap(labels, properties map[string]string) bool {
 	return false
 }
 
-// nodeMatchesNodeSelectorTerms checks if a node's labels satisfy a list of node selector terms,
-// terms are ORed, and an empty list of terms will match nothing.
-func nodeMatchesNodeSelectorTerms(node *v1.Node, nodeSelectorTerms []v1.NodeSelectorTerm) bool {
-	for _, req := range nodeSelectorTerms {
-		nodeSelector, err := nodeSelectorRequirementsAsSelector(req.MatchExpressions)
-		if err != nil {
-			glog.V(3).Infof("Failed to parse MatchExpressions: %+v, regarding as not match.", req.MatchExpressions)
-			return false
-		}
-		if nodeSelector.Matches(labels.Set(node.Labels)) {
-			return true
+// target whether contain all s slice, if not, return exclusive value and false
+func sliceInSlice(s, target []string) ([]string, bool) {
+	re := make([]string, 0)
+	targetStr := strings.Join(target, " ")
+	for _, ele := range s {
+		if !strings.Contains(targetStr, ele) {
+			re = append(re, ele)
 		}
 	}
-	return false
-}
-
-// nodeSelectorRequirementsAsSelector converts the []NodeSelectorRequirement api type into a struct that implements
-// labels.Selector.
-func nodeSelectorRequirementsAsSelector(nsm []v1.NodeSelectorRequirement) (labels.Selector, error) {
-	if len(nsm) == 0 {
-		return labels.Nothing(), nil
+	if len(re) > 0 {
+		return re, false
 	}
-	selector := labels.NewSelector()
-	for _, expr := range nsm {
-		var op selection.Operator
-		switch expr.Operator {
-		case v1.NodeSelectorOpIn:
-			op = selection.In
-		case v1.NodeSelectorOpNotIn:
-			op = selection.NotIn
-		case v1.NodeSelectorOpExists:
-			op = selection.Exists
-		case v1.NodeSelectorOpDoesNotExist:
-			op = selection.DoesNotExist
-		case v1.NodeSelectorOpGt:
-			op = selection.GreaterThan
-		case v1.NodeSelectorOpLt:
-			op = selection.LessThan
-		default:
-			return nil, fmt.Errorf("%q is not a valid node selector operator", expr.Operator)
-		}
-		r, err := labels.NewRequirement(expr.Key, op, expr.Values)
-		if err != nil {
-			return nil, err
-		}
-		selector = selector.Add(*r)
-	}
-	return selector, nil
+	return nil, true
 }
 
 func labelMatchesLabelSelectorExpressions(matchExpressions []metav1.LabelSelectorRequirement, mLabels map[string]string) bool {
