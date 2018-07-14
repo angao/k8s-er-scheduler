@@ -3,8 +3,11 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/golang/glog"
 	"k8s.io/api/core/v1"
@@ -32,10 +35,10 @@ func Predicates(clientset *kubernetes.Clientset) http.HandlerFunc {
 				Error:       err.Error(),
 			}
 		} else {
-			extenedResourceScheduler := &ExtendedResourceScheduler{
+			extendedResourceScheduler := &ExtendedResourceScheduler{
 				Clientset: clientset,
 			}
-			extenderFilterResult = filter(extenderArgs, extenedResourceScheduler)
+			extenderFilterResult = filter(extenderArgs, extendedResourceScheduler)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -49,7 +52,7 @@ func Predicates(clientset *kubernetes.Clientset) http.HandlerFunc {
 	}
 }
 
-func filter(extenderArgs schedulerapi.ExtenderArgs, extenedResourceScheduler *ExtendedResourceScheduler) *schedulerapi.ExtenderFilterResult {
+func filter(extenderArgs schedulerapi.ExtenderArgs, extendedResourceScheduler *ExtendedResourceScheduler) *schedulerapi.ExtenderFilterResult {
 	pod := extenderArgs.Pod
 	nodes := extenderArgs.Nodes.Items
 
@@ -66,102 +69,114 @@ func filter(extenderArgs schedulerapi.ExtenderArgs, extenedResourceScheduler *Ex
 		Error:       "",
 	}
 
-	ercs, err := findExtendedResourceClaims(pod, extenedResourceScheduler)
+	extendedResourceClaims, err := extendedResourceScheduler.FindExtendedResourceClaimList(pod)
 	if err != nil {
-		glog.Errorf("find extendedresourceclaims failed: %v", err)
 		result.Error = err.Error()
 		return result
 	}
-	for _, erc := range ercs {
-		erList, err := findExtendedResourceList(erc, extenedResourceScheduler)
+
+	// calculate how much extendedResource are needed for pod
+	// TODO: Check whether the user's declared rawResourceName is the same as the declared rawResourceName of extended resource
+	var extendedResourceNames = make([]string, 0)
+	for _, erc := range extendedResourceClaims {
+		extendedResourceNames = append(extendedResourceNames, erc.Spec.ExtendedResourceNames...)
+	}
+
+	glog.V(2).Info("start to filter node")
+
+	// TODO: check the extended resources of the node asynchronously
+	for _, node := range nodes {
+		nodeName := node.Name
+		extendedResourceAllocatable := node.Status.ExtendedResourceAllocatable
+		if len(extendedResourceAllocatable) < len(extendedResourceNames) {
+			canNotSchedule[nodeName] = "extended resources that can be allocated on this node are less than pod needs"
+			continue
+		}
+
+		if ss, b := sliceInSlice(extendedResourceNames, extendedResourceAllocatable); !b {
+			canNotSchedule[nodeName] = fmt.Sprintf("there are no such [%s] extended resource", strings.Join(ss, " "))
+			continue
+		}
+
+		extendedResources, err := extendedResourceScheduler.FindExtendedResourceList(extendedResourceAllocatable)
 		if err != nil {
-			glog.Errorf("erc: %v error: %v", erc, err)
-			result.Error = err.Error()
-			return result
+			canNotSchedule[nodeName] = err.Error()
+			continue
 		}
 
-		extendedResources := &v1alpha1.ExtendedResourceList{
-			Items: make([]v1alpha1.ExtendedResource, 0),
-		}
-		for _, er := range erList.Items {
-			nodeAffinity := er.Spec.NodeAffinity
-			requirements := erc.Spec.MetadataRequirements
-
-			if nodeAffinity == nil ||
-				!mapInMap(requirements.MatchLabels, er.Spec.Properties) ||
-				!labelMatchesLabelSelectorExpressions(requirements.MatchExpressions, er.Spec.Properties) {
+		// filter out the er specified in erc and er status is not available
+		scheduled := false
+		extendedResourceAvailable := make([]*v1alpha1.ExtendedResource, 0)
+		extendedResourceAvailable = append(extendedResourceAvailable, extendedResources...)
+		if len(extendedResourceNames) > 0 {
+		loop:
+			for i := 0; i < len(extendedResourceAvailable); i++ {
+				for _, name := range extendedResourceNames {
+					if name != extendedResourceAvailable[i].Name {
+						continue
+					}
+					if extendedResourceAvailable[i].Status.Phase != v1alpha1.ExtendedResourceAvailable {
+						scheduled = true
+						break loop
+					}
+					extendedResourceAvailable = append(extendedResourceAvailable[:i], extendedResourceAvailable[i+1:]...)
+				}
+			}
+			if scheduled {
+				canNotSchedule[nodeName] = "there are unavailable extended resources in extendedresourceclaim"
 				continue
 			}
+		}
 
-			nodeSelectorTerms := nodeAffinity.Required.NodeSelectorTerms
-			for _, node := range nodes {
-				// set er related with erc
-				if nodeMatchesNodeSelectorTerms(&node, nodeSelectorTerms) {
-					erc.Spec.ExtendedResourceNames = append(erc.Spec.ExtendedResourceNames, er.Name)
+		for _, erc := range extendedResourceClaims {
+			erNames := erc.Spec.ExtendedResourceNames
+			erNum := erc.Spec.ExtendedResourceNum
+			requirements := erc.Spec.MetadataRequirements
+			rawResourceName := erc.Spec.RawResourceName
+
+			for i := 0; i < len(extendedResourceAvailable); i++ {
+				er := extendedResourceAvailable[i]
+				prop := er.Spec.Properties
+				if int64(len(erNames)) < erNum && rawResourceName == er.Spec.RawResourceName &&
+					(mapInMap(requirements.MatchLabels, prop) ||
+						labelMatchesLabelSelectorExpressions(requirements.MatchExpressions, prop)) {
+					erNames = append(erNames, er.Name)
 					er.Spec.ExtendedResourceClaimName = erc.Name
-					extendedResources.Items = append(extendedResources.Items, er)
-					canSchedule = append(canSchedule, node)
+					extendedResourceAvailable = append(extendedResourceAvailable[:i], extendedResourceAvailable[i+1:]...)
 				}
-				canNotSchedule[node.ObjectMeta.Name] = "node's label is not satisfy er's nodeAffinity"
 			}
+			if erNum != 0 && int64(len(erNames)) < erNum {
+				canNotSchedule[nodeName] = fmt.Sprintf("extended resource that can be allocated are not satisfy [%s] needs", erc.Name)
+				continue
+			}
+			erc.Spec.ExtendedResourceNames = erNames
+			erc.Status.Phase = v1alpha1.ExtendedResourceClaimPending
+			erc.Status.Reason = "extended resource have been satisfied and waiting to bound"
 		}
 
-		extendedResourceNum := erc.Spec.ExtendedResourceNum
-
-		extenedResourceScheduler.UpdateExtendedResourceClaim(pod.Namespace, erc)
-		for _, er := range extendedResources.Items {
-			if er.Spec.ExtendedResourceClaimName != "" {
-				extenedResourceScheduler.UpdateExtendedResource(&er)
+		for _, erc := range extendedResourceClaims {
+			if erc.Status.Phase != v1alpha1.ExtendedResourceClaimPending {
+				scheduled = true
+				break
 			}
 		}
-		canSchedule = canSchedule[:extendedResourceNum]
-		result.FailedNodes = canNotSchedule
+		if !scheduled {
+			canSchedule = append(canSchedule, node)
+		} else {
+			canNotSchedule[nodeName] = "node can allocate extended resource are not satisfy pod needs"
+			continue
+		}
 	}
 
+	// pod can be scheduled, so erc need to update, erc is pending
+	if len(canSchedule) > 0 {
+		for _, erc := range extendedResourceClaims {
+			extendedResourceScheduler.UpdateExtendedResourceClaim(pod.Namespace, erc)
+		}
+	}
+	result.FailedNodes = canNotSchedule
 	result.Nodes.Items = canSchedule
 	return result
-}
-
-func findExtendedResourceClaims(pod v1.Pod, extenedResourceScheduler *ExtendedResourceScheduler) ([]*v1alpha1.ExtendedResourceClaim, error) {
-	extendedResourceClaimNames := make([]string, 0)
-	for _, container := range pod.Spec.Containers {
-		if len(container.ExtendedResourceClaims) != 0 {
-			extendedResourceClaimNames = append(extendedResourceClaimNames, container.ExtendedResourceClaims...)
-		}
-	}
-	if len(extendedResourceClaimNames) == 0 {
-		return nil, errors.New("extendedresourceclaims not set")
-	}
-	extendedResourceClaims := make([]*v1alpha1.ExtendedResourceClaim, 0)
-	for _, ercName := range extendedResourceClaimNames {
-		erc, err := extenedResourceScheduler.FindExtendedResourceClaim(pod.Namespace, ercName)
-		if err != nil {
-			return nil, err
-		}
-		extendedResourceClaims = append(extendedResourceClaims, erc)
-	}
-	return extendedResourceClaims, nil
-}
-
-func findExtendedResourceList(erc *v1alpha1.ExtendedResourceClaim, extenedResourceScheduler *ExtendedResourceScheduler) (*v1alpha1.ExtendedResourceList, error) {
-	rawResourceName := erc.Spec.RawResourceName
-	erList, err := extenedResourceScheduler.FindERByRawResourceName(rawResourceName)
-	if err != nil {
-		return nil, err
-	}
-	extendedResourceNames := erc.Spec.ExtendedResourceNames
-	if len(extendedResourceNames) != 0 {
-		extendedResources := make([]v1alpha1.ExtendedResource, 0, len(extendedResourceNames))
-		for _, name := range extendedResourceNames {
-			er, err := extenedResourceScheduler.FindERByName(name)
-			if err != nil {
-				return nil, err
-			}
-			extendedResources = append(extendedResources, *er)
-		}
-		erList.Items = append(erList.Items, extendedResources...)
-	}
-	return erList, nil
 }
 
 // default set all node is fail
